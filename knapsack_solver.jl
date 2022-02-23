@@ -12,6 +12,7 @@ using Distributions
 using DelimitedFiles
 using ArgParse
 
+
 # Struct represents the items available to be placed inside the knapsack
 struct Item
     value
@@ -20,6 +21,7 @@ end
 
 # Add another method to Base.show to print the Item struct
 Base.show(io::IO, ::MIME"text/plain", i::Item) = @printf(io, "(weight: %f, value: %f)\n", i.weight, i.value)
+
 
 # Method to read items from a config file in the format 'value, weight'.
 # Returns an array of Items
