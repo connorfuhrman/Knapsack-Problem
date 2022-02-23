@@ -19,7 +19,7 @@ struct Item
 end
 
 # Add another method to Base.show to print the Item struct
-Base.show(io::IO, ::MIME"text/plain", i::Item) = @printf(io, "Item with weight %f and value %f\n", i.weight, i.value)
+Base.show(io::IO, ::MIME"text/plain", i::Item) = @printf(io, "(weight: %f, value: %f)\n", i.weight, i.value)
 
 # Method to read items from a config file in the format 'value, weight'.
 # Returns an array of Items
@@ -33,31 +33,98 @@ function read_items_file(fpath)
 end
 
 
+function weight_calc(gene, items)
+    w = 0.0
+    for i in 1:length(gene)
+        w += gene[i] * items[i].weight
+    end
+    return w
+end
+
+
 function fitness(gene, items, max_weight)
     fit = 0.0
     weight = 0.0
-    for (g,i) in zip(gene, items)
-        fit += g*i.value
-        weight += g*i.weight
+    for i in 1:length(items)
+        fit += gene[i] * items[i].value
+        weight += gene[i] * items[i].weight
     end
+#    for (g,i) in zip(gene, items)
+#        fit += g*i.value
+#        weight += g*i.weight
+#    end
 
     # Return the fitness value or 0 if we're over weight
+
     return fit * (weight <= max_weight)
 end
 
 function make_init_pop(n, num_items)
     pop = [] # TOOD make this a fixed size (we know here)
+
+    # Push N number of random genes into the pool
     for i in 1:n
         push!(pop, bitrand(num_items))
+    end
+
+    # Push zeros, ones, and 1 of each for each item to the pool
+    push!(pop, BitVector(zeros(num_items)))
+    push!(pop, BitVector(ones(num_items)))
+
+    for i in 1:num_items
+        to_add = BitVector(zeros(num_items))
+        to_add[i] = true
+        push!(pop, to_add)
     end
 
     return pop
 end
 
+
+# Sort the population acording to the fitness
+function sort_population(pop, _fitness)
+    sorted = similar(pop)
+    fitness = copy(_fitness)
+    row = 1
+    while length(fitness) > 0
+        i = argmax(fitness)
+        deleteat!(fitness, i)
+        sorted[row,:] = pop[i,:]
+        row += 1
+    end
+    return sorted
+end
+
+""" Function to write the population to a text file 
+
+    Accepts arguments (1) the population and (2) the filename to write """
+function write_population(pop, filename)
+    open(filename, "w") do f
+        writedlm(f, 1*pop)
+    end
+end
+
+function debug_items(items)
+    weights = [it.weight for it in items]
+    values = [it.value for it in items]
+
+    @printf "Items summary for %d items:\n" length(items)
+    @printf "\tWeight summary:\n"
+    @printf "\t\tMax: %f\n" maximum(weights)
+    @printf "\t\tMin: %f\n" minimum(weights)
+    @printf "\t\tMean: %f\n" mean(weights)
+    @printf "\tValues summary:\n"
+    @printf "\t\tMax: %f\n" maximum(values)
+    @printf "\t\tMin: %f\n" minimum(values)
+    @printf "\t\tMean: %f\n" mean(values)
+end
+
+function debug_population(pop, fitness, items)
+    
+end
+
 function tournament_select(pop, fit, n_selected, n_competing)
-    # Select n_selected number of genes from the pool pop (with replacement)
-    # where n_competing randomly sampled genes compete at once
-    selected = []
+    selected = similar(pop)
     for i in 1:n_selected
         idx = rand(1:length(pop), n_competing)
         max_fit_idx = idx[1]
@@ -66,7 +133,10 @@ function tournament_select(pop, fit, n_selected, n_competing)
                 max_fit_idx = idx[i]
             end
         end
+        # Add the winning gene to the new pool
         push!(selected, pop[max_fit_idx])
+        # Remove the gene from the old pool
+        deleteat!(pop, max_fit_idx)
     end
 
     return selected
@@ -119,25 +189,51 @@ function mutation(pop, p_mutate)
     return pop
 end
 
-function optimize(n_init_pop, items, max_weight, tourn_size, select_pop_size, p_cross, p_mutate, exit_tol = 150)
+function optimize(n_init_pop, items, max_capacity, tourn_size, select_pop_size, p_cross, p_mutate, exit_tol = 150, save_population_frames = false)
     # Create an initial population 
-   pop = make_init_pop(n_init_pop, length(items))
+    pop = make_init_pop(n_init_pop, length(items))
+#    for g in pop
+#        @show g
+#    end
     # Loop until a satisfactory solution is found
     max_fitness = 0.0
-    max_weight = 0.0
+    opt_weight = 0.0
     n_loops_without_increase = 0
     optimal = nothing
+    generation = 0
+
+    debug_items(items)
+    
     while true
+        # Display some information about the population
+        #debug_population(pop, items)
+        
         # Calculate the fitness for the population
-        fit = [fitness(g, items, max_weight) for g in pop]
+        fit = [fitness(g, items, max_capacity) for g in pop]
         i = argmax(fit)
         if fit[i] > max_fitness
             @show max_fitness = fit[i]
-            @show optimal = pop[i]
+            optimal = pop[i]
+            @show opt_weight = weight_calc(optimal, items)
+            @assert(opt_weight <= max_capacity)
+            n_loops_without_increase = 0
         else
-            n_loops_without_increase = n_loops_without_increase + 1
+            n_loops_without_increase += 1
+
+            # Exit condition
             if n_loops_without_increase > exit_tol break end
         end
+        if save_population_frames
+            # Sort the population according to fitness 
+            sorted_pop = sort_population(pop, fit)
+            # Write this generation to a file and plot via the GNUplot script
+            filename = ".knapsack_data/data.txt"
+            write_population(sorted_pop, filename)
+            img_filename = @sprintf ".knapsack_data/generation_%05i.png" generation
+            run(pipeline(`cat $filename`, `gnuplot -e "filename='$img_filename'" plot/plot_population.gnuplot`))
+        end
+        generation += 1
+        if generation % 10 == 0 println("Generation: $generation") end
         # Now based on that fitness select the genes which will move on
         pop = tournament_select(pop, fit, select_pop_size, tourn_size)
         # Perform crossover
@@ -150,16 +246,12 @@ function optimize(n_init_pop, items, max_weight, tourn_size, select_pop_size, p_
         error("Was never able to find a fitness > 0")
     end
 
-    opt_weight = 0.0
-    for i = 1:length(items)
-        opt_weight += items[i].weight * optimal[i]
-    end
-
-    if opt_weight > max_weight
+    if opt_weight > max_capacity
+        @show opt_weight
         error("Weight exceeds capacity")
     end
     
-    return fitness(optimal, items, max_weight), opt_weight
+    return max_fitness, opt_weight
 end
 
 
@@ -182,7 +274,6 @@ function brute_force_recursive(items, remaining_capacity, total_weight, index)
 
     # Exclude the current element and consider everything else
     val2, weight_without = brute_force_recursive(items, remaining_capacity, total_weight, index+1)
-
     if val1 == val2
         return val1, min(weight_with, weight_without)
     elseif val1 > val2
@@ -197,6 +288,56 @@ function brute_force(items, max_weight)
 end
 
 
+# Taken from https://rosettacode.org/wiki/Knapsack_problem/0-1#Python
+function items_value(items, max_weight)
+    val = 0.0
+    weight = 0
+    for i in items
+        val += i.value
+        weight += i.weight
+        if weight > max_weight return 0 end
+    end
+    return val
+end
+
+function dynamic_recursive(items, max_weight, cache)
+    if length(items) == 0
+        return []
+    end
+
+    # If we've not cached this value run the calculation
+    if !haskey(cache, (items, max_weight))
+        head = items[1]
+        tail = items[2:end]
+
+        include = vcat(head, dynamic_recursive(tail, max_weight - head.weight, cache))
+        dont_include = dynamic_recursive(tail, max_weight, cache)
+
+        if items_value(include, max_weight) > items_value(dont_include, max_weight)
+            ans = include
+        else
+            ans = dont_include
+        end
+
+        cache[(items, max_weight)] = ans
+    end
+
+    return cache[(items, max_weight)]
+    
+end
+
+function dynamic(items, max_weight)
+    cache = Dict()
+    selected = dynamic_recursive(items, max_weight, cache)
+    v, w = 0.0, 0
+    for s in selected
+        v += s.value
+        w += s.weight
+    end
+    return v, w
+end
+
+
 function main(args)
     # Are we running the genetic optimier or the brute force method?
     parser = ArgParseSettings(description = "Knapsack Problem solved either via the genetic optimizer or brute force")
@@ -208,6 +349,9 @@ function main(args)
         "--brute_force"
         action = :store_true
         help = "Run the brute force optimizer"
+        "--dynamic"
+        action = :store_true
+        help = "Run the dynamic programming brute-force solver"
         "--input"
         required = true
         help = "Input file"
@@ -239,22 +383,23 @@ function main(args)
 
     args = parse_args(parser)
 
-    if args["genetic"] && args["brute_force"]
+    if args["genetic"] && args["brute_force"] 
         error("Cannot run both the genetic and brute force at once. Pick one")
     end
 
     # Make the list of items we can put in the knapsack with the (value, weight) value
     possible_items = read_items_file(args["input"])
 
-    init_pop_size = args["initial_population_size"]
-    pop_size = args["selected_population_size"]
-    tourn_size = args["tournament_size"]
-    p_cross = args["p_crossover"]
-    p_mut = args["p_mutate"]
-
     if args["genetic"]
         # Run the genetic solver
-        @timev opt, weight = optimize(init_pop_size, possible_items, args["max_capacity"], tourn_size, pop_size, p_cross, p_mut)
+        @timev opt, weight = optimize(args["initial_population_size"],
+                                      possible_items, args["max_capacity"],
+                                      args["tournament_size"],
+                                      args["selected_population_size"],
+                                      args["p_crossover"],
+                                      args["p_mutate"])
+    elseif args["dynamic"] && args["brute_force"]
+        @timev opt, weight = dynamic(possible_items, args["max_capacity"])
     elseif args["brute_force"]
         # Run the brute force recursive
         @timev opt, weight = brute_force(possible_items, args["max_capacity"])
