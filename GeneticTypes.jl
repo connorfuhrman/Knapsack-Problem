@@ -1,8 +1,6 @@
 module GeneticTypes
 
-export Item, Gene, Base
-
-using Printf
+export Gene
 
 
 # Type for a "gene" which holds an array of T-type chromosomes
@@ -12,12 +10,17 @@ mutable struct Gene{T}
 
     # Constructor method to create an N-sized vector of T-type variables
     # which are uninitialized
-    Gene{T}(sz::Int64) where T = new(sz, Array{T}(undef,sz))
+    Gene{T}(sz::Int64) where T<:Any = new(sz, Array{T}(undef,sz))
 
     # Constructor method to create an N-sized vector of T-type variables
     # which are randomly initialized via the randomer function which takes
     # a size as the argument
-    Gene{T}(sz::Int64, randomer::Function) where T = new(sz, Array{T}(randomer(sz)))
+    Gene{T}(sz::Int64, randomer::Function) where T<:Any = new(sz, Array{T}(randomer(sz)))
+
+    # Constructor given an array already. The array is copied
+    Gene{T}(a::Array{T}) where T<:Any = new(length(a), a)
+    # Specialized for the Bool type
+    Gene{Bool}(a::BitVector) = new(length(a), a)
 end
 
 

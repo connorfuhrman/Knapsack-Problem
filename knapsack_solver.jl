@@ -6,6 +6,9 @@ include in a collection so that the total weight is less than or equal to a give
 the total value is as large as possible.
 """
 
+push!(LOAD_PATH, pwd()) # Add the current path so we can load other files
+using GeneticTypes, GeneticFuncs
+
 using Printf
 using Random
 using Distributions
@@ -14,9 +17,12 @@ using ArgParse
 
 
 # Struct represents the items available to be placed inside the knapsack
+# where the value and weight are both floating-point values
 struct Item
-    value
-    weight
+    value::Float64
+    weight::Float64
+
+    Item(v, w) = new(v, w)
 end
 
 # Add another method to Base.show to print the Item struct
@@ -61,22 +67,17 @@ function fitness(gene, items, max_weight)
     return fit * (weight <= max_weight)
 end
 
-function make_init_pop(n, num_items)
-    pop = [] # TOOD make this a fixed size (we know here)
-
-    # Push N number of random genes into the pool
-    for i in 1:n
-        push!(pop, bitrand(num_items))
-    end
+function make_init_pop(N::Int64, num_items::Int64)
+    pop = [Gene{Bool}(N) for i in 1:num_items]
 
     # Push zeros, ones, and 1 of each for each item to the pool
-    push!(pop, BitVector(zeros(num_items)))
-    push!(pop, BitVector(ones(num_items)))
+    push!(pop, Gene{Bool}(BitVector(zeros(num_items))))
+    push!(pop, Gene{Bool}(BitVector(ones(num_items))))
 
     for i in 1:num_items
         to_add = BitVector(zeros(num_items))
         to_add[i] = true
-        push!(pop, to_add)
+        push!(pop, Gene{Bool}(to_add))
     end
 
     return pop
