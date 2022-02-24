@@ -5,8 +5,18 @@ using GeneticTypes, GeneticFuncs
 
 using Printf
 using Random
+using StatsBase
 
-addme(x) = x+1
+using StatProfilerHTML
+
+# Function to create a random chromosome with some number of 1's
+function make_random_chromosome(num_items::Int64, num_true::Int64)::Vector{Bool}
+    c = [false for _ in 1:num_items]
+    idxs = sample(1:num_items, num_true, replace = false)
+    c[idxs] .= true
+
+    return c
+end
 
 function make_genepool(N::Int64, num_items::Int64)::Vector{Gene{Bool}}
     pop = [Gene{Bool}(N) for i in 1:num_items]
@@ -44,15 +54,16 @@ function main1(args)
 
     g3 = Gene{Int64}([1,2,3,4,5])
     @show g3
+    addme(x) = x+1
     mutation!(g3, 1.0, addme)
     @show g3
     
 end
 
 function main2(args)
-    @show pop = make_genepool(10, 5)
+    pop = make_genepool(10, 5)
 end
 
-#main1(ARGS)
+main1(ARGS)
 
-main2(ARGS)
+@timev main2(ARGS)

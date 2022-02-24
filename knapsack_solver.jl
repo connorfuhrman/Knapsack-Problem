@@ -31,43 +31,31 @@ Base.show(io::IO, ::MIME"text/plain", i::Item) = @printf(io, "(weight: %f, value
 
 # Method to read items from a config file in the format 'value, weight'.
 # Returns an array of Items
-function read_items_file(fpath)
+function read_items_file(fpath)::Vector{Items}
     data = readdlm(fpath, ',', Float64, '\n')
-    items = []
-    for i = 1:size(data)[1]
-        push!(items, Item(data[i,1], data[i,2]))
-    end
+    items = [Item(d[1], d[2]) for d in data]
+
     return items
 end
 
 
-function weight_calc(gene, items)
-    w = 0.0
-    for i in 1:length(gene)
-        w += gene[i] * items[i].weight
-    end
-    return w
+weight_calc(gene::Gene{Bool}, items::Vector{Item})::Float64 = sum(gene.chromosomes .* [i.weight for i in items])
+
+value_calc(gene::Gene{Bool}, items::Vector{Items})::Float64 = sum(gene.chromosomes .* [i.value for i in items])
+
+fitness(gene::Gene{Bool}, items::Vector{Items}, max_weight::Float64)::Float64 = value_calc(gene, items) * (weight_calc(gene, items) <= max_weight)
+
+
+# Function to create a random chromosome with some number of 1's
+function make_random_chromosome(num_items::Int64, num_true::Int64)::Vector{Bool}
+    c = [false for _ in 1:num_items]
+    idxs = sample(1:num_items, num_true, replace = false)
+    c[idxs] .= true
+
+    return c
 end
 
-
-function fitness(gene, items, max_weight)
-    fit = 0.0
-    weight = 0.0
-    for i in 1:length(items)
-        fit += gene[i] * items[i].value
-        weight += gene[i] * items[i].weight
-    end
-#    for (g,i) in zip(gene, items)
-#        fit += g*i.value
-#        weight += g*i.weight
-#    end
-
-    # Return the fitness value or 0 if we're over weight
-
-    return fit * (weight <= max_weight)
-end
-
-function make_init_pop(N::Int64, num_items::Int64)
+function make_genepool(N::Int64, num_items::Int64)::Vector{Gene{Bool}}
     pop = [Gene{Bool}(N) for i in 1:num_items]
 
     # Push zeros, ones, and 1 of each for each item to the pool
@@ -126,6 +114,7 @@ function debug_population(pop, fitness, items)
     
 end
 
+
 function tournament_select(pop, fit, n_selected, n_competing)
     selected = similar(pop)
     for i in 1:n_selected
@@ -142,6 +131,28 @@ function tournament_select(pop, fit, n_selected, n_competing)
         deleteat!(pop, max_fit_idx)
     end
 
+    return selected
+end
+
+
+# Function to return the indicies of the next generation from the current gene pool
+# p_pelected percentage of the current population rounded to the nearest integer
+# (the rest should be created via crossover and/or mutation after this call)
+weighted_selection(pop::Vector{Gene{Bool}}, fit::Vector{Float64}, p_selected::Float64 = 0.5)::Vector{Int64} = \
+    return sample([1:eachindex(pop)], [f/sum(fit) for f in fit], round(length(pop)*p_selected))
+
+# Function to perform tournament selection
+# p_selected percentage of the pool is selected in tournaments of n_competing genes
+function tournament_selection(pop::Vector{Gene{Bool}}, fit::Vector{Float64}, n_competing::Int64, p_selected::Float64 = 0.5)::Vector{Int64}
+    num_selected = 0
+    num_required = round(p_selected*legth(pop))
+    selected = zeros{Int64}(num_required)
+    while num_selected != round(num_required)
+        competing = sample([1:length(pop)], n_competing, replace = false)
+        competing_fit = fit[competing]
+        selected[num_selected+1] = competing[argmax(competing_fit)]
+        num_selected += 1
+    end
     return selected
 end
 
@@ -194,7 +205,7 @@ end
 
 function optimize(n_init_pop, items, max_capacity, tourn_size, select_pop_size, p_cross, p_mutate, exit_tol = 150, save_population_frames = false)
     # Create an initial population 
-    pop = make_init_pop(n_init_pop, length(items))
+    pop = make_genepool(n_init_pop, length(items))
 #    for g in pop
 #        @show g
 #    end
@@ -238,7 +249,7 @@ function optimize(n_init_pop, items, max_capacity, tourn_size, select_pop_size, 
         generation += 1
         if generation % 10 == 0 println("Generation: $generation") end
         # Now based on that fitness select the genes which will move on
-        pop = tournament_select(pop, fit, select_pop_size, tourn_size)
+        selected = weighted_selection(pop, fit, p_selected = 0.75)
         # Perform crossover
         pop = crossover(pop, p_cross)
         # Perform mutations
