@@ -2,7 +2,7 @@
 
 
 julia knapsack_solver.jl --genetic \
-      --input ./items/items_n5000.csv \
+      --input ./items/items_n50.csv \
       --max_capacity 1500 \
       --initial_population_size 2500 \
       --selected_population_size 2500 \

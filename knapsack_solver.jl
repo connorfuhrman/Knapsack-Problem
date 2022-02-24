@@ -10,10 +10,11 @@ push!(LOAD_PATH, pwd()) # Add the current path so we can load other files
 using GeneticTypes, GeneticFuncs
 
 using Printf
-using Random
-using Distributions
+using Random, Distributions, StatsBase
 using DelimitedFiles
 using ArgParse
+
+using DataStructures
 
 
 # Struct represents the items available to be placed inside the knapsack
@@ -31,9 +32,9 @@ Base.show(io::IO, ::MIME"text/plain", i::Item) = @printf(io, "(weight: %f, value
 
 # Method to read items from a config file in the format 'value, weight'.
 # Returns an array of Items
-function read_items_file(fpath)::Vector{Items}
+function read_items_file(fpath)::Vector{Item}
     data = readdlm(fpath, ',', Float64, '\n')
-    items = [Item(d[1], d[2]) for d in data]
+    items = [Item(d[1], d[2]) for d in eachrow(data)]
 
     return items
 end
@@ -41,9 +42,9 @@ end
 
 weight_calc(gene::Gene{Bool}, items::Vector{Item})::Float64 = sum(gene.chromosomes .* [i.weight for i in items])
 
-value_calc(gene::Gene{Bool}, items::Vector{Items})::Float64 = sum(gene.chromosomes .* [i.value for i in items])
+value_calc(gene::Gene{Bool}, items::Vector{Item})::Float64 = sum(gene.chromosomes .* [i.value for i in items])
 
-fitness(gene::Gene{Bool}, items::Vector{Items}, max_weight::Float64)::Float64 = value_calc(gene, items) * (weight_calc(gene, items) <= max_weight)
+fitness(gene::Gene{Bool}, items::Vector{Item}, max_weight::Float64)::Float64 = value_calc(gene, items) * (weight_calc(gene, items) <= max_weight)
 
 
 # Function to create a random chromosome with some number of 1's
@@ -55,10 +56,12 @@ function make_random_chromosome(num_items::Int64, num_true::Int64)::Vector{Bool}
     return c
 end
 
+# Function to create the initial random genepool of N random genes each having chromosomes
+# or length num_items
 function make_genepool(N::Int64, num_items::Int64)::Vector{Gene{Bool}}
-    pop = [Gene{Bool}(N) for i in 1:num_items]
+    pop = [Gene{Bool}(num_items) for i in 1:N]
 
-    # Push zeros, ones, and 1 of each for each item to the pool
+"""    # Push zeros, ones, and 1 of each for each item to the pool
     push!(pop, Gene{Bool}(BitVector(zeros(num_items))))
     push!(pop, Gene{Bool}(BitVector(ones(num_items))))
 
@@ -67,6 +70,7 @@ function make_genepool(N::Int64, num_items::Int64)::Vector{Gene{Bool}}
         to_add[i] = true
         push!(pop, Gene{Bool}(to_add))
     end
+"""
 
     return pop
 end
@@ -138,8 +142,15 @@ end
 # Function to return the indicies of the next generation from the current gene pool
 # p_pelected percentage of the current population rounded to the nearest integer
 # (the rest should be created via crossover and/or mutation after this call)
-weighted_selection(pop::Vector{Gene{Bool}}, fit::Vector{Float64}, p_selected::Float64 = 0.5)::Vector{Int64} = \
-    return sample([1:eachindex(pop)], [f/sum(fit) for f in fit], round(length(pop)*p_selected))
+function weighted_selection(pop::Vector{Gene{Bool}}, fit::Vector{Float64}, p_selected::Float64 = 0.5)::Tuple{Vector{Int64}, Vector{Int64}}
+    selected = Vector{Int64}(undef, Int(round(p_selected*length(pop))))
+    # Adjust weights so that genes with a 0 fitness have a small probability to be selected (half of the smallerst
+    # change)
+    weights = [f == 0.0 ? minimum(filter(_f -> _f != 0, fit))/2 : f for f in fit]
+    idxs = collect(eachindex(pop))
+    sample!(idxs, Weights(weights), selected) # Sample from idxs and place into selected
+    return selected, setdiff(idxs, selected) # Return selected and what's in idxs but not in selected (what didn't get selected)
+end
 
 # Function to perform tournament selection
 # p_selected percentage of the pool is selected in tournaments of n_competing genes
@@ -148,7 +159,7 @@ function tournament_selection(pop::Vector{Gene{Bool}}, fit::Vector{Float64}, n_c
     num_required = round(p_selected*legth(pop))
     selected = zeros{Int64}(num_required)
     while num_selected != round(num_required)
-        competing = sample([1:length(pop)], n_competing, replace = false)
+        competing = sample([1:length(pop)], n_competing, false) # TODO Update as in above
         competing_fit = fit[competing]
         selected[num_selected+1] = competing[argmax(competing_fit)]
         num_selected += 1
@@ -156,51 +167,31 @@ function tournament_selection(pop::Vector{Gene{Bool}}, fit::Vector{Float64}, n_c
     return selected
 end
 
-function do_crossover(p1, p2, pc)
-    coin = Bernoulli(pc)
-    if rand(coin)
-        c1 = copy(p1)
-        c2 = copy(p2)
-        split_idx = rand(eachindex(c1))
-        for i = 1:split_idx
-            c1[i] = p2[i]
-            c2[i] = p1[i]
-        end
-        return c1, c2
-    else
-        return p1, p2
+
+# Function to perform crossover with some probability when copying the selected genes into the gene pool
+# The default for crossover to occur is 75% and parentes from the selected population are sampled 
+function do_crossover!(pop::Vector{Gene{Bool}}, selected::Vector{Int64}, _not_selected::Vector{Int64}, p_crossover::Float64 = 0.75)
+    not_selected = Queue{Int64}()
+    for ns in shuffle(_not_selected) enqueue!(not_selected, ns) end
+    while length(not_selected) >= 2 # 2 elements are popped at each loop iteration
+        children = pop[[dequeue!(not_selected), dequeue!(not_selected)]]
+        parents = pop[sample(selected, 2, replace=false)]
+        one_point_crossover!(parents, children, p_crossover)
+    end
+    # If we missed one gene, where length(not_selected) is odd, then just make the last gene totally random
+    if !isempty(not_selected)
+        pop[dequeue!(not_selected)].chromosomes = bitrand(pop[1].n_chromosomes)
+        @assert isempty(not_selected)
     end
 end
 
-function crossover(pop, p_cross)
-    new_pop = []
-    while  length(pop) >= 2
-        # Select at random 2 genes (without replacement), perform crossover with some
-        # probability, and add the resulting two genes back to the pool
-        parent1 = splice!(pop, rand(eachindex(pop)))
-        parent2 = splice!(pop, rand(eachindex(pop)))
-        child1, child2 = do_crossover(parent1, parent2, p_cross)
-        push!(new_pop, child1)
-        push!(new_pop, child2)
-    end
-
-    # Place the "date mike" genes who did *not* get lucky back into the gene pool to try again
-    # next time
-    for g in pop push!(new_pop, g) end
-    
-    return new_pop
-end
-
-function mutation(pop, p_mutate)
+# Function to perform mutation on the genes which were not selected and were then created from crossover
+# where those genes are drawn from the poulation 
+function do_mutation!(pop::Vector{Gene{Bool}}, idx::Vector{Int64}, p_mutate::Float64)
     coin = Bernoulli(p_mutate)
-    for ip = 1:length(pop)
-        for ig = 1:length(pop[1])
-            if rand(coin)
-                pop[ip][ig] = !pop[ip][ig]
-            end
-        end
+    for g in pop[idx]
+        if rand(coin) mutation!(g, p_mutate) end
     end
-    return pop
 end
 
 function optimize(n_init_pop, items, max_capacity, tourn_size, select_pop_size, p_cross, p_mutate, exit_tol = 150, save_population_frames = false)
@@ -249,11 +240,11 @@ function optimize(n_init_pop, items, max_capacity, tourn_size, select_pop_size, 
         generation += 1
         if generation % 10 == 0 println("Generation: $generation") end
         # Now based on that fitness select the genes which will move on
-        selected = weighted_selection(pop, fit, p_selected = 0.75)
-        # Perform crossover
-        pop = crossover(pop, p_cross)
-        # Perform mutations
-        pop = mutation(pop, p_mutate)
+        selected, not_selected = weighted_selection(pop, fit, 0.25)
+        # Perform crossover to create new genes from the most fit parents
+        do_crossover!(pop, selected, not_selected, p_cross)
+        # Perform mutation on the genes which were created via crossover
+        do_mutation!(pop, not_selected, p_mutate)
     end
 
     if optimal == nothing
@@ -424,5 +415,6 @@ function main(args)
     println("Optimal calculated to be $opt with weight $weight")
 end
 
-
-main(ARGS)
+if abspath(PROGRAM_FILE) == @__FILE__
+    main(ARGS)
+end

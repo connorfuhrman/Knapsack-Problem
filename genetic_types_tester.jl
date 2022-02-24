@@ -64,6 +64,21 @@ function main2(args)
     pop = make_genepool(10, 5)
 end
 
-main1(ARGS)
+function main3(args)
+    G = Gene{Int64}
+    @show genes = [G(collect(1:4)), G(collect(5:8)), G(zeros(Int, 4)), G(zeros(Int, 4))]
 
-@timev main2(ARGS)
+    @show parents = genes[1:2]
+    @show children = genes[3:4]
+
+    println("Doing crossover with p = 1.0")
+    @show methods(one_point_crossover!)
+    one_point_crossover!(parents, children, 1.0)
+    @show parents
+    @show children
+   
+end
+
+#main1(ARGS)
+#@timev main2(ARGS)
+main3(ARGS)
