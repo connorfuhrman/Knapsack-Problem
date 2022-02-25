@@ -194,20 +194,21 @@ function do_mutation!(pop::Vector{Gene{Bool}}, idx::Vector{Int64}, p_mutate::Flo
     end
 end
 
-function optimize(n_init_pop, items, max_capacity, tourn_size, select_pop_size, p_cross, p_mutate, exit_tol = 150, save_population_frames = false)
+function optimize(n_init_pop, items, max_capacity, tourn_size, select_pop_size, p_cross, p_mutate, exit_tol = 250, save_population_frames = false, save_fitness_data = true)
     # Create an initial population 
     pop = make_genepool(n_init_pop, length(items))
 #    for g in pop
 #        @show g
 #    end
     # Loop until a satisfactory solution is found
-    max_fitness = 0.0
-    opt_weight = 0.0
-    n_loops_without_increase = 0
+    max_fitness::Float64 = 0.0
+    opt_weight::Float64 = 0.0
+    n_loops_without_increase::Int64 = 0
     optimal = nothing
-    generation = 0
-
+    generation::Int64 = 0
     debug_items(items)
+
+    fitness_data = []
     
     while true
         # Display some information about the population
@@ -224,7 +225,6 @@ function optimize(n_init_pop, items, max_capacity, tourn_size, select_pop_size, 
             n_loops_without_increase = 0
         else
             n_loops_without_increase += 1
-
             # Exit condition
             if n_loops_without_increase > exit_tol break end
         end
@@ -237,6 +237,10 @@ function optimize(n_init_pop, items, max_capacity, tourn_size, select_pop_size, 
             img_filename = @sprintf ".knapsack_data/generation_%05i.png" generation
             run(pipeline(`cat $filename`, `gnuplot -e "filename='$img_filename'" plot/plot_population.gnuplot`))
         end
+        if save_fitness_data
+            nonzero_fitness = filter(f -> f>0.0, fit)
+            push!(fitness_data, [generation, mean(nonzero_fitness), minimum(nonzero_fitness), maximum(nonzero_fitness), count(i->i==0, fit)/length(fit)])
+        end
         generation += 1
         if generation % 10 == 0 println("Generation: $generation") end
         # Now based on that fitness select the genes which will move on
@@ -245,6 +249,12 @@ function optimize(n_init_pop, items, max_capacity, tourn_size, select_pop_size, 
         do_crossover!(pop, selected, not_selected, p_cross)
         # Perform mutation on the genes which were created via crossover
         do_mutation!(pop, not_selected, p_mutate)
+    end
+
+    if save_fitness_data
+        open(".knapsack_data/fitness_data.csv", "w") do fio
+            writedlm(fio, fitness_data, ", ")
+        end
     end
 
     if optimal == nothing

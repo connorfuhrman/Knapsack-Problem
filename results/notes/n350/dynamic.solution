@@ -1,0 +1,11 @@
+[11:50:57] connorfuhrman:knapsack_problem > julia knapsack_solver.jl --brute_force --dynamic --input ./items/items_n350.csv --max_capacity 1500
+ 72.623606 seconds (417.27 M allocations: 13.929 GiB, 21.84% gc time, 0.24% compilation time)
+elapsed time (ns): 72623605836
+gc time (ns):      15862477244
+bytes allocated:   14956418564
+pool allocs:       416053373
+non-pool GC allocs:1217872
+malloc() calls:    26
+GC pauses:         19
+full collections:  15
+Optimal calculated to be 57969.0 with weight 1500.0
