@@ -58,19 +58,24 @@ end
 
 # Function to create the initial random genepool of N random genes each having chromosomes
 # or length num_items
-function make_genepool(N::Int64, num_items::Int64)::Vector{Gene{Bool}}
-    pop = [Gene{Bool}(num_items) for i in 1:N]
+function make_genepool(N::Int64, num_items::Int64, percent_random::Float64=0.75)::Vector{Gene{Bool}}
+    if percent_random > 1.0 percent_random = 1.0 end
+    # Start filling the population with 3/4 generated completely randomly
+    pop = [Gene{Bool}(num_items, bitrand) for i in 1:Int(round(percent_random*N))]
+    # Then fill the remaining holding a small number of items
+    num_true = Int(round(0.1*num_items))
+    num_true = (num_true == 0) ? 1 : num_true
+    while length(pop) != N
+        push!(pop, make_binary_gene(num_items, num_true))
+    end
 
-"""    # Push zeros, ones, and 1 of each for each item to the pool
-    push!(pop, Gene{Bool}(BitVector(zeros(num_items))))
-    push!(pop, Gene{Bool}(BitVector(ones(num_items))))
-
+   # Push zeros, ones, and 1 of each for each item to the pool
     for i in 1:num_items
         to_add = BitVector(zeros(num_items))
         to_add[i] = true
         push!(pop, Gene{Bool}(to_add))
     end
-"""
+
 
     return pop
 end
@@ -196,7 +201,7 @@ end
 
 function optimize(n_init_pop, items, max_capacity, tourn_size, select_pop_size, p_cross, p_mutate, exit_tol = 250, save_population_frames = false, save_fitness_data = true)
     # Create an initial population 
-    pop = make_genepool(n_init_pop, length(items))
+    pop = make_genepool(n_init_pop, length(items), 0.05)
 #    for g in pop
 #        @show g
 #    end
@@ -205,7 +210,7 @@ function optimize(n_init_pop, items, max_capacity, tourn_size, select_pop_size, 
     opt_weight::Float64 = 0.0
     n_loops_without_increase::Int64 = 0
     optimal = nothing
-    generation::Int64 = 0
+    generation::Int64 = 02
     debug_items(items)
 
     fitness_data = []
@@ -239,6 +244,9 @@ function optimize(n_init_pop, items, max_capacity, tourn_size, select_pop_size, 
         end
         if save_fitness_data
             nonzero_fitness = filter(f -> f>0.0, fit)
+            if length(nonzero_fitness) == 0
+                error("Did not find a fitness greater than 0!")
+            end
             push!(fitness_data, [generation, mean(nonzero_fitness), minimum(nonzero_fitness), maximum(nonzero_fitness), count(i->i==0, fit)/length(fit)])
         end
         generation += 1

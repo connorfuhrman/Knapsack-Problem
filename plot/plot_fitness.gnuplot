@@ -21,9 +21,22 @@ plot filename using 1:2 with lines title "Average Fitness", \
      filename using 1:3 with lines title "Minimum Nonzero Fitness", \
      filename using 1:4 with lines title "Maximum Fitness"
 
-#set key top
-#set ylabel "Percent of Fitness Values\nEqual to Zero"
-#unset yrange
-#set ytics
-#plot filename using 1:5 with lines title ""
+
+set output "zerov_fitness.png"
+
+set multiplot layout 2,1
+set title "Percentage of 0-valued fitness"
+
+
+set key top
+set ylabel "Percentage"
+set ytics
+
+set xrange[fit_min_x:25]
+plot filename using 1:5 with lines title ""
+
+unset title
+unset yrange
+set xrange [fit_min_x:fit_max_x]
+plot filename using 1:5 with lines title ""
 

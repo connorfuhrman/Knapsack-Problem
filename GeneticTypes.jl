@@ -1,6 +1,8 @@
 module GeneticTypes
 
-export Gene
+export Gene, make_binary_gene
+
+using StatsBase
 
 
 # Type for a "gene" which holds an array of T-type chromosomes
@@ -21,6 +23,14 @@ mutable struct Gene{T}
     Gene{T}(a::Array{T}) where T<:Any = new(length(a), a)
     # Specialized for the Bool type
     Gene{Bool}(a::BitVector) = new(length(a), a)
+end
+
+
+function make_binary_gene(sz::Int64, nTrue::Int64)::Gene{Bool}
+    g = Gene{Bool}(BitVector(zeros(sz)))
+    g.chromosomes[sample(collect(1:sz), nTrue, replace=false)] .= true
+
+    return g
 end
 
 
